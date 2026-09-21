@@ -138,6 +138,7 @@ func DefaultToolsetGroup(readOnly, allowDelete bool, engine *twapi.Engine) *tool
 			TaskList(engine),
 			TasklistGet(engine),
 			TasklistList(engine),
+			TasklistTemplateList(engine),
 			WorkflowGet(engine),
 			WorkflowList(engine),
 			WorkflowStageGet(engine),
