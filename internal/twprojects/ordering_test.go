@@ -111,6 +111,8 @@ var orderingToolCases = []orderingToolCase{{
 }, {
 	method: twprojects.MethodTasklistList.String(),
 }, {
+	method: twprojects.MethodTasklistTemplateList.String(),
+}, {
 	method:         twprojects.MethodTasklistBudgetList.String(),
 	args:           map[string]any{"project_budget_id": float64(123)},
 	sdkDefaultBy:   "dateCreated",
