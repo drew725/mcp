@@ -24,7 +24,8 @@ const (
 	MethodTasklistUpdate toolsets.Method = "twprojects-update_tasklist"
 	MethodTasklistDelete toolsets.Method = "twprojects-delete_tasklist"
 	MethodTasklistGet    toolsets.Method = "twprojects-get_tasklist"
-	MethodTasklistList   toolsets.Method = "twprojects-list_tasklists"
+	MethodTasklistList         toolsets.Method = "twprojects-list_tasklists"
+	MethodTasklistTemplateList toolsets.Method = "twprojects-list_tasklist_templates"
 )
 
 var (
@@ -42,6 +43,31 @@ var tasklistOrdering = newOrdering("task lists",
 	projects.TasklistOrderByProject,
 	projects.TasklistOrderByID,
 )
+
+// tasklistTemplateListRequest reuses the SDK's tasklist filters while pointing
+// them at the tasklist-template endpoint. This keeps the MCP compatible with the
+// currently released SDK while the template endpoint is added there as a first-
+// class request type.
+type tasklistTemplateListRequest struct {
+	projects.TasklistListRequest
+	includeDefaultTasks bool
+}
+
+func (t tasklistTemplateListRequest) HTTPRequest(ctx context.Context, server string) (*http.Request, error) {
+	req, err := t.TasklistListRequest.HTTPRequest(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+
+	req.URL.Path = "/projects/api/v3/tasklists/templates.json"
+	if t.includeDefaultTasks {
+		query := req.URL.Query()
+		query.Set("include", "defaultTasks")
+		req.URL.RawQuery = query.Encode()
+	}
+
+	return req, nil
+}
 
 func init() {
 	var err error
@@ -419,6 +445,95 @@ func TasklistList(engine *twapi.Engine) toolsets.ToolWrapper {
 			}
 			var structured any
 			if err := json.Unmarshal(linked, &structured); err != nil {
+				return nil, fmt.Errorf("failed to decode response: %w", err)
+			}
+			result.StructuredContent = structured
+			return result, nil
+		},
+	}
+}
+
+
+// TasklistTemplateList lists tasklist templates in Teamwork.com.
+func TasklistTemplateList(engine *twapi.Engine) toolsets.ToolWrapper {
+	return toolsets.ToolWrapper{
+		Tool: &mcp.Tool{
+			Name: string(MethodTasklistTemplateList),
+			Description: "List tasklist templates. Set include_default_tasks to true to include the tasks " +
+				"defined by each template.",
+			Annotations: &mcp.ToolAnnotations{
+				Title:           "List Tasklist Templates",
+				ReadOnlyHint:    true,
+				DestructiveHint: new(false),
+				OpenWorldHint:   new(false),
+			},
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"search_term": helpers.SearchTermSchema("tasklist templates", "name"),
+					"order_by":    tasklistOrdering.orderBySchema(),
+					"order_mode":  orderModeSchema(),
+					"page":        helpers.PageSchema(),
+					"page_size":   helpers.PageSizeSchema(),
+					"include_default_tasks": {
+						Description: "If true, include the tasks defined by each tasklist template.",
+						AnyOf: []*jsonschema.Schema{
+							{Type: "boolean"},
+							{Type: "null"},
+						},
+						Default: []byte(`false`),
+					},
+				},
+				Required: []string{},
+			},
+		},
+		Handler: func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var tasklistTemplateRequest tasklistTemplateListRequest
+
+			var arguments map[string]any
+			if err := json.Unmarshal(request.Params.Arguments, &arguments); err != nil {
+				return helpers.NewToolResultTextError("failed to decode request: %s", err.Error()), nil
+			}
+			err := helpers.ParamGroup(arguments,
+				helpers.OptionalParam(&tasklistTemplateRequest.Filters.SearchTerm, "search_term"),
+				tasklistOrdering.param(
+					&tasklistTemplateRequest.Filters.OrderBy,
+					&tasklistTemplateRequest.Filters.OrderMode,
+				),
+				helpers.OptionalNumericParam(&tasklistTemplateRequest.Filters.Page, "page"),
+				helpers.OptionalNumericParam(&tasklistTemplateRequest.Filters.PageSize, "page_size"),
+				helpers.OptionalParam(&tasklistTemplateRequest.includeDefaultTasks, "include_default_tasks"),
+			)
+			if err != nil {
+				return helpers.NewToolResultTextError("invalid parameters: %s", err.Error()), nil
+			}
+
+			resp, err := twapi.ExecuteRaw(ctx, engine, tasklistTemplateRequest)
+			if err != nil {
+				return helpers.HandleAPIError(err, "failed to list tasklist templates")
+			}
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+			if resp.StatusCode != http.StatusOK {
+				return helpers.HandleAPIError(
+					twapi.NewHTTPError(resp, "failed to list tasklist templates"),
+					"failed to list tasklist templates",
+				)
+			}
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read response body: %w", err)
+			}
+
+			result := &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: string(body)},
+				},
+			}
+			var structured any
+			if err := json.Unmarshal(body, &structured); err != nil {
 				return nil, fmt.Errorf("failed to decode response: %w", err)
 			}
 			result.StructuredContent = structured

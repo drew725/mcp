@@ -62,3 +62,50 @@ func TestTasklistListByProject(t *testing.T) {
 		"page_size":   float64(10),
 	})
 }
+
+
+func TestTasklistTemplateListReachesTheWire(t *testing.T) {
+	mcpServer, requestURL := testutil.ProjectsMCPServerMockWithRequestURL(
+		t,
+		http.StatusOK,
+		[]byte(`{"tasklists":[]}`),
+	)
+	testutil.ExecuteToolRequest(t, mcpServer, twprojects.MethodTasklistTemplateList.String(), map[string]any{
+		"search_term":          "manipe",
+		"order_by":             "name",
+		"order_mode":           "desc",
+		"page":                 float64(2),
+		"page_size":            float64(25),
+		"include_default_tasks": true,
+	})
+
+	if got, want := requestURL.Path, "/projects/api/v3/tasklists/templates.json"; got != want {
+		t.Errorf("path = %q, want %q", got, want)
+	}
+	query := requestURL.Query()
+	for key, want := range map[string]string{
+		"searchTerm": "manipe",
+		"orderBy":    "name",
+		"orderMode":  "desc",
+		"page":       "2",
+		"pageSize":   "25",
+		"include":    "defaultTasks",
+	} {
+		if got := query.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestTasklistTemplateListOmitsDefaultTasksByDefault(t *testing.T) {
+	mcpServer, requestURL := testutil.ProjectsMCPServerMockWithRequestURL(
+		t,
+		http.StatusOK,
+		[]byte(`{"tasklists":[]}`),
+	)
+	testutil.ExecuteToolRequest(t, mcpServer, twprojects.MethodTasklistTemplateList.String(), nil)
+
+	if got := requestURL.Query().Get("include"); got != "" {
+		t.Errorf("expected no include parameter by default, got %q", got)
+	}
+}
